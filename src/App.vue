@@ -1,5 +1,30 @@
 <template>
   <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
+    <div
+      v-if="!isMounted"
+      class="fixed w-100 h-100 opacity-80 bg-purple-800 inset-0 z-50 flex items-center justify-center"
+    >
+      <svg
+        class="animate-spin -ml-1 mr-3 h-12 w-12 text-white"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+      >
+        <circle
+          class="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          stroke-width="4"
+        ></circle>
+        <path
+          class="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+        ></path>
+      </svg>
+    </div>
     <div class="container">
       <div class="w-full my-4"></div>
       <section>
@@ -11,7 +36,8 @@
             <div class="mt-1 relative rounded-md shadow-md">
               <input
                 v-model="ticker"
-                @keydown.enter="add"
+                @keydown.enter="add(ticker)"
+                @input="fuzzy"
                 type="text"
                 name="wallet"
                 id="wallet"
@@ -19,10 +45,25 @@
                 placeholder="Например DOGE"
               />
             </div>
+            <div
+              class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap"
+            >
+              <span
+                v-for="coin in bestOfFour"
+                :key="coin.coin"
+                @click="add(coin.coin)"
+                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
+              >
+                {{ coin.coin }}
+              </span>
+            </div>
+            <div v-if="onTickers" class="text-sm text-red-600">
+              Такой тикер уже добавлен
+            </div>
           </div>
         </div>
         <button
-          @click="add"
+          @click="add(ticker)"
           type="button"
           class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
         >
@@ -132,6 +173,8 @@
 </template>
 
 <script>
+import { fuzzySearch, presearch, exactSearch } from "./assets/fuzzysearch";
+
 export default {
   name: "App",
   data() {
@@ -140,31 +183,46 @@ export default {
       tickers: [],
       sel: null,
       graph: [],
+      isMounted: false,
+      bestOfFour: [],
+      onTickers: false,
     };
   },
 
   methods: {
-    add() {
-      const currentTicker = {
-        name: this.ticker,
-        price: "-",
-      };
-
-      this.tickers.push(currentTicker);
-
+    subcribeToUpdates(tickerName) {
       setInterval(async () => {
         const f = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=77a04170aff4020424d94d248d6741dffd08e6a148db2aded46d8657aabdb758`
+          `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=77a04170aff4020424d94d248d6741dffd08e6a148db2aded46d8657aabdb758`
         );
         const data = await f.json();
-        this.tickers.find((t) => t.name === currentTicker.name).price =
+        this.tickers.find((t) => t.name === tickerName).price =
           data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
-        if (this.sel?.name === currentTicker.name) {
+        if (this.sel?.name === tickerName.name) {
           this.graph.push(data.USD);
         }
       }, 3000);
+    },
+
+    add(tickerName) {
+      const currentTicker = {
+        name: exactSearch(tickerName),
+        price: "-",
+      };
+      this.onTickers = false;
+      if (!currentTicker.name) return;
+      if (this.tickers.some((elem) => elem.name === currentTicker.name)) {
+        this.onTickers = true;
+        return;
+      }
+
+      this.bestOfFour = [];
+      this.tickers.push(currentTicker);
+
+      localStorage.setItem("cryptonomicon-list", JSON.stringify(this.tickers));
 
       this.ticker = "";
+      this.subcribeToUpdates(currentTicker.name);
     },
 
     select(ticker) {
@@ -183,6 +241,24 @@ export default {
         (price) => 5 + ((price - minValue) * 95) / (maxValue - minValue)
       );
     },
+
+    fuzzy() {
+      this.bestOfFour = fuzzySearch(this.ticker);
+      this.onTickers = false;
+    },
+  },
+  mounted: function () {
+    this.isMounted = true;
+  },
+  created: function () {
+    const tickersData = localStorage.getItem("cryptonomicon-list");
+    if (tickersData) {
+      this.tickers = JSON.parse(tickersData);
+      this.tickers.forEach((element) => {
+        this.subcribeToUpdates(element.name);
+      });
+    }
+    presearch();
   },
 };
 </script>
